@@ -1,0 +1,111 @@
+import os
+
+from dotenv import load_dotenv
+from pymongo import AsyncMongoClient
+from uuid import uuid4
+
+load_dotenv()
+
+MONGODB_URL = os.getenv(
+    "MONGODB_URL",
+    "mongodb://localhost:27017"
+)
+
+MONGODB_DATABASE = os.getenv(
+    "MONGODB_DATABASE",
+    "graphql_learning"
+)
+
+client = AsyncMongoClient(MONGODB_URL)
+
+db = client[MONGODB_DATABASE]
+
+user_collection = db["users"]
+
+async def get_user_by_token(token: str):
+    return await user_collection.find_one({
+        "token": token
+    })
+
+async def get_user_full_name(user_id: int):
+    user = await user_collection.find_one({
+        "id": user_id
+    })
+    
+    if user is None:
+        return None
+    
+    return user["fullName"]
+
+async def get_user_nickname(user_id: int):
+    user = await user_collection.find_one({
+        "id": user_id
+    })
+    
+    if user is None:
+        return None
+    
+    return user["nickname"]
+
+review_collection = db["reviews"]
+
+async def create_review(
+    episode: str,
+    stars: int,
+    commentary: str | None,
+    author_id: int
+):
+    review_document = {
+        "id": str(uuid4()),
+        "episode": episode,
+        "stars": stars,
+        "commentary": commentary,
+        "authorId": author_id,
+    }
+    
+    await review_collection.insert_one(review_document)
+    
+    return review_document
+
+async def get_all_reviews():
+    reviews = []
+    async for review in review_collection.find():
+        reviews.append(review)
+    return reviews
+
+
+async def update_user_nickname(user_id: int, nickname: str):
+    await user_collection.update_one(
+        {
+            "id": user_id
+        },
+        {
+            "$set": {
+                "nickname": nickname,
+            }
+        },
+    )
+    
+    return await user_collection.find_one({
+        "id": user_id
+    })
+    
+    
+async def delete_review(
+    review_id: str,
+    author_id: int,
+):
+    review = await review_collection.find_one({
+        "id": review_id,
+        "authorId": author_id,
+    })
+
+    if review is None:
+        return None
+
+    await review_collection.delete_one({
+        "id": review_id,
+        "authorId": author_id,
+    })
+
+    return review
