@@ -1,5 +1,7 @@
 from enum import Enum
 from typing import Annotated
+import asyncio
+from collections.abc import AsyncGenerator
 
 import strawberry
 
@@ -9,7 +11,12 @@ from app.database import (
     create_review,
     get_all_reviews,
     update_user_nickname,
-    delete_review
+    delete_review,
+)
+
+from app.events import (
+    publish_review_created,
+    subscribe_to_review_created,
 )
 
 
@@ -345,13 +352,17 @@ class Mutation:
             author_id=authenticated_user["id"],
         )
 
-        return Review(
+        created_review = Review(
             id=saved_review["id"],
             episode=Episode(saved_review["episode"]),
             stars=saved_review["stars"],
             commentary=saved_review["commentary"],
             author_id=saved_review["authorId"],
         )
+
+        await publish_review_created(saved_review)
+
+        return created_review
 
     
     @strawberry.mutation
@@ -399,7 +410,38 @@ class Mutation:
             message="Review successfully deleted."
         )
     
+ 
+# ============================================================
+# Subscriptions
+# ============================================================
+
+@strawberry.type
+class Subscription:
+    
+    @strawberry.subscription
+    async def count(
+        self,
+        target: int = 5,
+    ) -> AsyncGenerator[int, None]:
         
+        for i in range(target):
+            yield i
+            await asyncio.sleep(1)
+
+    @strawberry.subscription
+    async def review_created(
+        self,
+    ) -> AsyncGenerator[Review, None]:
+        async for document in subscribe_to_review_created():
+            yield Review(
+                id=document["id"],
+                episode=Episode(document["episode"]),
+                stars=document["stars"],
+                commentary=document.get("commentary"),
+                author_id=document["authorId"],
+            )
+            
+    
 # ============================================================
 # GRAPHQL SCHEMA
 # ============================================================
@@ -407,4 +449,5 @@ class Mutation:
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
+    subscription=Subscription
 )

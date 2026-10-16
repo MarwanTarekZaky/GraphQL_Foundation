@@ -1,21 +1,30 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from strawberry.fastapi import GraphQLRouter
+from starlette.requests import HTTPConnection
 
-from app.auth import authenticate
+from app.database import get_user_by_token
 from app.schema import schema
 
 
 app = FastAPI()
 
 
-async def get_context(request: Request):
-    user = await authenticate(request)
-    
+async def get_context(connection: HTTPConnection):
+    authorization = connection.headers.get("Authorization")
+
+    user = None
+
+    if authorization:
+        scheme, _, token = authorization.partition(" ")
+
+        if scheme.lower() == "bearer" and token:
+            user = await get_user_by_token(token)
+
     return {
-        "request": request,
+        "request": connection,
         "user": user,
     }
-    
+
 
 graphql_app = GraphQLRouter(
     schema,
