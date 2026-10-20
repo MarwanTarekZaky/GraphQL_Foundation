@@ -1,2 +1,6 @@
 /.venv
 /repo_dump.txt
+__pycache__/
+*.pyc
+.env
+.DS_Store
