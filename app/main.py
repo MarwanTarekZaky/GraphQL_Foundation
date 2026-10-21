@@ -5,6 +5,12 @@ from app.graphql_http import GraphQLOverHTTPRouter
 from app.schema import schema
 from app.auth import get_current_user
 
+from fastapi.staticfiles import StaticFiles
+
+from app.storage import AVATAR_DIR
+from app.uploads import router as uploads_router
+
+
 app = FastAPI()
 
 
@@ -29,6 +35,14 @@ graphql_app = GraphQLOverHTTPRouter(
 app.include_router(
     graphql_app,
     prefix="/graphql",
+)
+
+app.include_router(uploads_router)
+
+app.mount(
+    "/media/avatars",
+    StaticFiles(directory=AVATAR_DIR),
+    name="avatars",
 )
 
 

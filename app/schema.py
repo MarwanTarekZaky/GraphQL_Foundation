@@ -10,6 +10,7 @@ from app.database import (
     get_user_nickname,
     get_all_reviews,
     get_reviews_by_author,
+    get_user_avatar_url,
 )
 
 from app.events import subscribe_to_review_created
@@ -18,6 +19,8 @@ from app.services import (
     write_review,
     remove_review,
     change_nickname,
+    set_avatar,
+    request_avatar_upload,
 )
 
 
@@ -37,6 +40,10 @@ class User:
     async def nickname(self) -> str | None:
         return await get_user_nickname(self.id)
     
+    @strawberry.field
+    async def avatar_url(self) -> str | None:
+        return await get_user_avatar_url(self.id)
+
     @strawberry.field
     async def reviews(self) -> list["Review"]:
         documents = await get_reviews_by_author(self.id)
@@ -224,7 +231,13 @@ class DeleteReviewPayload:
     delete_review_id: strawberry.ID | None
     message: str
     
-    
+@strawberry.type
+class AvatarUpload:
+    upload_id: strawberry.ID
+    upload_url: str
+    expires_at: int
+
+  
 # ============================================================
 # QUERY ROOT
 # ============================================================
@@ -350,6 +363,34 @@ class Query:
 
 @strawberry.type
 class Mutation:
+    
+    @strawberry.mutation
+    async def request_avatar_upload(
+        self,
+        info: strawberry.Info,
+    ) -> AvatarUpload:
+        upload = await request_avatar_upload(user=info.context["user"])
+
+        base_url = str(info.context["request"].base_url).rstrip("/")
+
+        return AvatarUpload(
+            upload_id=upload["upload_id"],
+            upload_url=base_url + upload["path"],
+            expires_at=upload["expires"],
+        )
+
+    @strawberry.mutation
+    async def set_my_avatar(
+        self,
+        info: strawberry.Info,
+        upload_id: strawberry.ID,
+    ) -> User:
+        updated_user = await set_avatar(
+            user=info.context["user"],
+            upload_id=str(upload_id),
+        )
+
+        return User(id=updated_user["id"])
 
     @strawberry.mutation
     async def create_review(

@@ -115,3 +115,54 @@ async def delete_review(
     })
 
     return review
+
+
+upload_collection = db["uploads"]
+
+
+async def create_upload(upload_id: str, owner_id: int, expires: int):
+    await upload_collection.insert_one({
+        "id": upload_id,
+        "ownerId": owner_id,
+        "expires": expires,
+    })
+
+
+async def get_upload(upload_id: str):
+    return await upload_collection.find_one({
+        "id": upload_id
+    })
+
+
+async def delete_upload(upload_id: str):
+    await upload_collection.delete_one({
+        "id": upload_id
+    })
+
+
+async def get_user_avatar_url(user_id: int):
+    user = await user_collection.find_one({
+        "id": user_id
+    })
+
+    if user is None:
+        return None
+
+    return user.get("avatarUrl")
+
+
+async def update_user_avatar_url(user_id: int, avatar_url: str):
+    await user_collection.update_one(
+        {
+            "id": user_id
+        },
+        {
+            "$set": {
+                "avatarUrl": avatar_url,
+            }
+        },
+    )
+
+    return await user_collection.find_one({
+        "id": user_id
+    })
