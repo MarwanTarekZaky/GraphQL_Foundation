@@ -1,30 +1,34 @@
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
+from starlette.requests import HTTPConnection
 
 from app.database import get_user_by_token
 
-async def authenticate(request: Request):
-    authorization = request.headers.get("Authorization")
+
+def unauthorized(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
     
-    if authorization is None:
-        raise HTTPException(
-            status_code= 401,
-            detail="Authorization header missing",
-        )
+
+async def get_current_user(connection: HTTPConnection) -> dict | None:
+    """Authentication: who is calling? Runs before GraphQL.
+
+    No header -> anonymous (None). A bad header or token -> 401.
+    Authorization (what the user may do) is decided later, in app/services.py.
+    """
+    
+    authorization = connection.headers.get("Authorization")
     
     scheme, _, token = authorization.partition(" ")
-    
+
     if scheme.lower() != "bearer" or not token:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid authorization header",
-        )
-    
+        raise unauthorized("Invalid authorization header")
+
     user = await get_user_by_token(token)
-    
+
     if user is None:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid token"
-        )
-    
+        raise unauthorized("Invalid token")
+
     return user
