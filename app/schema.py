@@ -8,15 +8,16 @@ import strawberry
 from app.database import (
     get_user_full_name,
     get_user_nickname,
-    create_review,
     get_all_reviews,
-    update_user_nickname,
-    delete_review,
+    get_reviews_by_author,
 )
 
-from app.events import (
-    publish_review_created,
-    subscribe_to_review_created,
+from app.events import subscribe_to_review_created
+
+from app.services import (
+    write_review,
+    remove_review,
+    change_nickname,
 )
 
 
@@ -35,6 +36,11 @@ class User:
     @strawberry.field
     async def nickname(self) -> str | None:
         return await get_user_nickname(self.id)
+    
+    @strawberry.field
+    async def reviews(self) -> list["Review"]:
+        documents = await get_reviews_by_author(self.id)
+        return [Review.from_document(doc) for doc in documents]
 
     @strawberry.field(
         deprecation_reason="Use `fullName`."
@@ -181,7 +187,25 @@ class Review:
     episode: Episode
     stars: int
     commentary: str | None
-    author_id: int
+    author_id: int = strawberry.field(
+        deprecation_reason="Use `author { id }`."
+    )
+    
+    @strawberry.field
+    def author(self) -> User:
+        return User(id=self.author_id)
+    
+    
+    @classmethod
+    def from_document(cls, document: dict) -> "Review":
+        return cls(
+            id=document["id"],
+            episode=Episode(document["episode"]),
+            stars=document["stars"],
+            commentary=document.get("commentary"),
+            author_id=document["authorId"],
+        )
+        
 
 @strawberry.type
 class Friend:
@@ -318,16 +342,7 @@ class Query:
     @strawberry.field
     async def reviews(self) -> list[Review]:
         review_documents = await get_all_reviews()
-        return [
-            Review(
-                id=document["id"],
-                episode=Episode(document["episode"]),
-                stars=document["stars"],
-                commentary=document.get("commentary"),
-                author_id=document["authorId"],
-            )
-            for document in review_documents
-        ]
+        return [Review.from_document(document) for document in review_documents]
         
 # ============================================================
 # MUTATION ROOT
@@ -343,73 +358,52 @@ class Mutation:
         episode: Episode,
         review: ReviewInput,
     ) -> Review:
-        authenticated_user = info.context["user"]
-
-        saved_review = await create_review(
+        saved_review = await write_review(
+            user=info.context["user"],
             episode=episode.value,
             stars=review.stars,
             commentary=review.commentary,
-            author_id=authenticated_user["id"],
         )
 
-        created_review = Review(
-            id=saved_review["id"],
-            episode=Episode(saved_review["episode"]),
-            stars=saved_review["stars"],
-            commentary=saved_review["commentary"],
-            author_id=saved_review["authorId"],
-        )
+        return Review.from_document(saved_review)
 
-        await publish_review_created(saved_review)
-
-        return created_review
-
-    
     @strawberry.mutation
     async def update_my_nickname(
         self,
         info: strawberry.Info,
-        nickname: str
+        nickname: str,
     ) -> User:
-        
-        authenticated_user = info.context["user"]
-        
-        updated_user = await update_user_nickname(
-            user_id=authenticated_user["id"],
-            nickname=nickname
+        updated_user = await change_nickname(
+            user=info.context["user"],
+            nickname=nickname,
         )
-        
-        return User(
-            id=updated_user["id"],
-        )
-        
+
+        return User(id=updated_user["id"])
+
     @strawberry.mutation
     async def delete_my_review(
         self,
         info: strawberry.Info,
         review_id: strawberry.ID,
     ) -> DeleteReviewPayload:
-        
-        authenticated_user = info.context["user"]
-
-        deleted_review = await delete_review(
+        deleted_review = await remove_review(
+            user=info.context["user"],
             review_id=str(review_id),
-            author_id=authenticated_user["id"],
         )
 
         if deleted_review is None:
             return DeleteReviewPayload(
                 success=False,
                 delete_review_id=None,
-                message="Review not found or not authorized to delete."
+                message="Review not found or not authorized to delete.",
             )
 
         return DeleteReviewPayload(
             success=True,
             delete_review_id=review_id,
-            message="Review successfully deleted."
+            message="Review successfully deleted.",
         )
-    
+
  
 # ============================================================
 # Subscriptions
@@ -433,13 +427,7 @@ class Subscription:
         self,
     ) -> AsyncGenerator[Review, None]:
         async for document in subscribe_to_review_created():
-            yield Review(
-                id=document["id"],
-                episode=Episode(document["episode"]),
-                stars=document["stars"],
-                commentary=document.get("commentary"),
-                author_id=document["authorId"],
-            )
+            yield Review.from_document(document)
             
     
 # ============================================================

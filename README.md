@@ -55,6 +55,25 @@ seed.py        # Seeds one user with token "marwan-secret-token"
 - Star Wars data is hard-coded in `schema.py`. Everything sits in a single schema file.
 - Pub/sub is in-memory only, so it only works within a single process.
 
+## Domain rules (shared language)
+
+- A **User** writes **Reviews**. Every review has exactly one **Author** (a User).
+- A Review is about exactly one **Episode**.
+- A Review has **1 to 5 stars** and an optional commentary.
+- Only an authenticated user can create a review.
+- Only the author of the a review can delete it.
+- A User can only change their own nickname.
+
+### Queries clinets should be able to write
+
+```graphql
+# My profile with my reviews
+{ me { fullName reviews { episode stars } } }
+
+# All reviews with the author's name
+{ reviews { stars commentary author { fullName } } }
+```
+
 ## Running locally
 
 ```bash

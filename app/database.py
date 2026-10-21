@@ -73,6 +73,12 @@ async def get_all_reviews():
         reviews.append(review)
     return reviews
 
+async def get_reviews_by_author(author_id: int):
+    reviews = []
+    async for review in review_collection.find({"authorId": author_id}):
+        reviews.append(review)
+    return reviews
+    
 
 async def update_user_nickname(user_id: int, nickname: str):
     await user_collection.update_one(
