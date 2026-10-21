@@ -49,7 +49,6 @@ seed.py        # Seeds one user with token "marwan-secret-token"
 
 ### Known gaps (to fix in the Best Practices stage)
 
-- Mutations assume an authenticated user. A missing token returns a leaked internal `TypeError` message instead of a clear authentication error.
 - `User` fields each hit the DB separately (N+1). DataLoaders are not used yet.
 - No pagination on `reviews`. No validation on `stars`.
 - Star Wars data is hard-coded in `schema.py`. Everything sits in a single schema file.
