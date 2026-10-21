@@ -391,6 +391,17 @@ class Mutation:
         )
 
         return User(id=updated_user["id"])
+    
+    @strawberry.field
+    async def avatar_url(self, info: strawberry.Info) -> str | None:
+        path = await get_user_avatar_url(self.id)
+
+        if path is None:
+            return None
+
+        base_url = str(info.context["request"].base_url).rstrip("/")
+        return base_url + path
+
 
     @strawberry.mutation
     async def create_review(
