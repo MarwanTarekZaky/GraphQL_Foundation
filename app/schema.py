@@ -21,6 +21,7 @@ from app.services import (
     change_nickname,
     set_avatar,
     request_avatar_upload,
+    get_email,
 )
 
 
@@ -43,6 +44,13 @@ class User:
     @strawberry.field
     async def avatar_url(self) -> str | None:
         return await get_user_avatar_url(self.id)
+    
+    @strawberry.field
+    async def email(self, info: strawberry.Info) -> str | None:
+        return await get_email(
+            viewer=info.context["user"],
+            user_id=self.id,
+        )
 
     @strawberry.field
     async def reviews(self) -> list["Review"]:

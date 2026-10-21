@@ -1,9 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from starlette.requests import HTTPConnection
-from app.graphql_http import GraphQLOverHTTPRouter
 
+from app.graphql_http import GraphQLOverHTTPRouter
 from app.schema import schema
 from app.auth import get_current_user
+from app.services import get_email
 
 from fastapi.staticfiles import StaticFiles
 
@@ -44,6 +45,16 @@ app.mount(
     StaticFiles(directory=AVATAR_DIR),
     name="avatars",
 )
+
+# A second entry point (REST) that reuses the same authorization rule.
+@app.get("/users/{user_id}/email")
+async def user_email(
+    user_id: int,
+    viewer: dict | None = Depends(get_current_user),
+):
+    return {
+        "email": await get_email(viewer=viewer, user_id=user_id),
+    }
 
 
 @app.get("/")

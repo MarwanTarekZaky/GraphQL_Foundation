@@ -97,24 +97,17 @@ async def update_user_nickname(user_id: int, nickname: str):
     })
     
     
-async def delete_review(
-    review_id: str,
-    author_id: int,
-):
-    review = await review_collection.find_one({
-        "id": review_id,
-        "authorId": author_id,
+async def get_review(review_id: str):
+    return await review_collection.find_one({
+        "id": review_id
     })
 
-    if review is None:
-        return None
 
+async def delete_review(review_id: str):
     await review_collection.delete_one({
-        "id": review_id,
-        "authorId": author_id,
+        "id": review_id
     })
 
-    return review
 
 
 upload_collection = db["uploads"]
@@ -149,6 +142,17 @@ async def get_user_avatar_url(user_id: int):
         return None
 
     return user.get("avatarUrl")
+
+
+async def get_user_email(user_id: int):
+    user = await user_collection.find_one({
+        "id": user_id
+    })
+
+    if user is None:
+        return None
+
+    return user.get("email")
 
 
 async def update_user_avatar_url(user_id: int, avatar_url: str):

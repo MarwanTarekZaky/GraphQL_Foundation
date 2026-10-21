@@ -20,6 +20,8 @@ async def get_current_user(connection: HTTPConnection) -> dict | None:
     """
     
     authorization = connection.headers.get("Authorization")
+    if authorization is None:
+        return None
     
     scheme, _, token = authorization.partition(" ")
 

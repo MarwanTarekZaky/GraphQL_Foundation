@@ -6,12 +6,14 @@ They never talk to database directly.
 
 from app.database import (
     create_review,
-    delete_review,
     update_user_nickname,
     create_upload,
     get_upload,
     delete_upload,
     update_user_avatar_url,
+    get_review,
+    delete_review,
+    get_user_email,
 )
 from app.events import publish_review_created
 from app.storage import (
@@ -40,6 +42,37 @@ def require_user(user: dict | None) -> dict:
     if user is None:
         raise AuthenticationError("You must be logged in to do this.")
     return user
+
+# ------------------------------------------------------------
+# Authorization rules (policies)
+# ------------------------------------------------------------
+
+def is_admin(viewer: dict | None) -> bool:
+    return viewer is not None and viewer.get("role") == "admin"
+
+
+def can_view_private_profile(viewer: dict | None, user_id: int) -> bool:
+    # Only the user themselves (or an admin) can see private profile fields.
+    if viewer is None:
+        return False
+
+    return viewer["id"] == user_id or is_admin(viewer)
+
+
+def can_delete_review(viewer: dict, review: dict) -> bool:
+    # The author can delete their own review; an admin can delete any review.
+    return viewer["id"] == review["authorId"] or is_admin(viewer)
+
+
+# ------------------------------------------------------------
+# Use cases
+# ------------------------------------------------------------
+
+async def get_email(viewer: dict | None, user_id: int) -> str | None:
+    if not can_view_private_profile(viewer, user_id):
+        return None
+
+    return await get_user_email(user_id)
 
 
 async def write_review(
@@ -71,13 +104,17 @@ async def remove_review(
     user: dict | None,
     review_id: str,
 ) -> dict | None:
-    author = require_user(user)
-    
-    #Ownership check: only the author can delete their review
-    return await delete_review(
-        review_id=review_id,
-        author_id=author["id"],
-    )
+    viewer = require_user(user)
+
+    review = await get_review(review_id)
+
+    if review is None or not can_delete_review(viewer, review):
+        return None
+
+    await delete_review(review_id)
+
+    return review
+
 
 
 async def change_nickname(user: dict | None, nickname: str) -> dict:
