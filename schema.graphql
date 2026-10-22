@@ -1,0 +1,129 @@
+type AvatarUpload {
+  uploadId: ID!
+  uploadUrl: String!
+  expiresAt: Int!
+}
+
+interface Character {
+  id: ID!
+  name: String!
+}
+
+type DeleteReviewPayload {
+  success: Boolean!
+  deleteReviewId: ID
+  message: String!
+}
+
+type Droid implements Character {
+  id: ID!
+  name: String!
+  primaryFunction: String!
+}
+
+enum Episode {
+  NEWHOPE
+  EMPIRE
+  JEDI
+}
+
+type Friend {
+  id: ID!
+  name: String!
+}
+
+type HeroWithFriends {
+  id: ID!
+  name: String!
+  friends: [Friend!]!
+}
+
+type Human implements Character {
+  id: ID!
+  name: String!
+  height: Float!
+  totalCredits: Int!
+}
+
+enum LengthUnit {
+  METER
+  FOOT
+}
+
+type Mutation {
+  requestAvatarUpload: AvatarUpload!
+  setMyAvatar(uploadId: ID!): User!
+  createReview(episode: Episode!, review: ReviewInput!): Review!
+  updateMyNickname(nickname: String!): User!
+  deleteReview(reviewId: ID!): DeleteReviewPayload!
+  deleteMyReview(reviewId: ID!): DeleteReviewPayload! @deprecated(reason: "Use `deleteReview`. Admins can delete any review, not only their own.")
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  startCursor: String
+  endCursor: String
+}
+
+type Query {
+  me: User
+  hero: Character!
+  humanHero: Character!
+  starship: Starship!
+  droid(id: ID!): Droid
+  search(text: String!): [SearchResult!]!
+  heroWithFriends: HeroWithFriends!
+  reviewsConnection(first: Int! = 10, after: String = null): ReviewConnection
+  reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`.")
+}
+
+type Review {
+  id: ID!
+  episode: Episode!
+  stars: Int!
+  commentary: String
+  authorId: Int! @deprecated(reason: "Use `author { id }`.")
+  author: User!
+}
+
+type ReviewConnection {
+  edges: [ReviewEdge!]!
+  pageInfo: PageInfo!
+  nodes: [Review!]!
+  totalCount: Int!
+}
+
+type ReviewEdge {
+  cursor: String!
+  node: Review!
+}
+
+input ReviewInput {
+  stars: Int!
+  commentary: String = null
+}
+
+union SearchResult = Human | Droid | Starship
+
+type Starship {
+  id: ID!
+  name: String!
+  length(unit: LengthUnit! = METER): Float!
+}
+
+type Subscription {
+  count(target: Int! = 5): Int!
+  reviewCreated: Review!
+}
+
+type User {
+  id: Int!
+  fullName: String
+  nickname: String
+  avatarUrl: String
+  email: String
+  reviewsConnection(first: Int! = 10, after: String = null): ReviewConnection
+  reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`.")
+  name: String @deprecated(reason: "Use `fullName`.")
+}

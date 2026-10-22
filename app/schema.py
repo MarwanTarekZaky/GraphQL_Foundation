@@ -45,8 +45,14 @@ class User:
         return await get_user_nickname(self.id)
     
     @strawberry.field
-    async def avatar_url(self) -> str | None:
-        return await get_user_avatar_url(self.id)
+    async def avatar_url(self, info: strawberry.Info) -> str | None:
+        path = await get_user_avatar_url(self.id)
+    
+        if path is None:
+            return None
+    
+        base_url = str(info.context["request"].base_url).rstrip("/")
+        return base_url + path
     
     @strawberry.field
     async def email(self, info: strawberry.Info) -> str | None:
@@ -60,7 +66,7 @@ class User:
             self,
             first: int = 10,
             after: str | None = None,
-        ) -> "ReviewConnection":
+        ) -> "ReviewConnection | None":
             page = await list_reviews(first=first, after=after, author_id=self.id)
             return ReviewConnection.from_page(page, author_id=self.id)
     
@@ -442,7 +448,7 @@ class Query:
         self,
         first: int = 10,
         after: str | None = None,
-    ) -> ReviewConnection:
+    ) -> ReviewConnection | None:
         page = await list_reviews(first=first, after=after)
         return ReviewConnection.from_page(page, author_id=None)
 
@@ -488,15 +494,6 @@ class Mutation:
 
         return User(id=updated_user["id"])
     
-    @strawberry.field
-    async def avatar_url(self, info: strawberry.Info) -> str | None:
-        path = await get_user_avatar_url(self.id)
-
-        if path is None:
-            return None
-
-        base_url = str(info.context["request"].base_url).rstrip("/")
-        return base_url + path
 
 
     @strawberry.mutation
@@ -529,7 +526,7 @@ class Mutation:
         return User(id=updated_user["id"])
 
     @strawberry.mutation
-    async def delete_my_review(
+    async def delete_review(
         self,
         info: strawberry.Info,
         review_id: strawberry.ID,
@@ -551,6 +548,16 @@ class Mutation:
             delete_review_id=review_id,
             message="Review successfully deleted.",
         )
+
+    @strawberry.mutation(
+        deprecation_reason="Use `deleteReview`. Admins can delete any review, not only their own."
+    )
+    async def delete_my_review(
+        self,
+        info: strawberry.Info,
+        review_id: strawberry.ID,
+    ) -> DeleteReviewPayload:
+        return await Mutation.delete_review(self, info, review_id)
 
  
 # ============================================================
