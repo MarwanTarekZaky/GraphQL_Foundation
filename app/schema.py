@@ -22,6 +22,9 @@ from app.services import (
     set_avatar,
     request_avatar_upload,
     get_email,
+    get_review_count,
+    list_reviews,
+    
 )
 
 
@@ -51,8 +54,19 @@ class User:
             viewer=info.context["user"],
             user_id=self.id,
         )
-
+        
     @strawberry.field
+    async def reviews_connection(
+            self,
+            first: int = 10,
+            after: str | None = None,
+        ) -> "ReviewConnection":
+            page = await list_reviews(first=first, after=after, author_id=self.id)
+            return ReviewConnection.from_page(page, author_id=self.id)
+    
+    @strawberry.field(
+    deprecation_reason="Use `reviewsConnection`."
+    )
     async def reviews(self) -> list["Review"]:
         documents = await get_reviews_by_author(self.id)
         return [Review.from_document(doc) for doc in documents]
@@ -62,6 +76,10 @@ class User:
     )
     async def name(self) -> str | None:
         return await get_user_full_name(self.id)
+    
+    
+    
+
 
 
 # ============================================================
@@ -220,7 +238,65 @@ class Review:
             commentary=document.get("commentary"),
             author_id=document["authorId"],
         )
+       
         
+# ============================================================
+# PAGINATION (Relay cursor connections)
+# ============================================================
+
+@strawberry.type
+class PageInfo:
+    has_next_page: bool
+    has_previous_page: bool
+    start_cursor: str | None
+    end_cursor: str | None
+
+
+@strawberry.type
+class ReviewEdge:
+    cursor: str
+    node: Review
+
+
+@strawberry.type
+class ReviewConnection:
+    edges: list[ReviewEdge]
+    page_info: PageInfo
+
+    # Which list this page belongs to (None = all reviews). Not exposed.
+    author_id: strawberry.Private[int | None]
+
+    @strawberry.field
+    def nodes(self) -> list[Review]:
+        # Shortcut for clients that don't need edge data like cursors.
+        return [edge.node for edge in self.edges]
+
+    @strawberry.field
+    async def total_count(self) -> int:
+        # Only counted when a client actually asks for it.
+        return await get_review_count(author_id=self.author_id)
+
+    @classmethod
+    def from_page(cls, page: dict, author_id: int | None) -> "ReviewConnection":
+        edges = [
+            ReviewEdge(
+                cursor=edge["cursor"],
+                node=Review.from_document(edge["node"]),
+            )
+            for edge in page["edges"]
+        ]
+
+        return cls(
+            edges=edges,
+            page_info=PageInfo(
+                has_next_page=page["has_next_page"],
+                has_previous_page=page["has_previous_page"],
+                start_cursor=edges[0].cursor if edges else None,
+                end_cursor=edges[-1].cursor if edges else None,
+            ),
+            author_id=author_id,
+        )
+
 
 @strawberry.type
 class Friend:
@@ -355,16 +431,28 @@ class Query:
             ],  
         )
         
-        
+   
+    
 # ============================================================
 # REVIEW QUERIES
 # ============================================================
 
     @strawberry.field
+    async def reviews_connection(
+        self,
+        first: int = 10,
+        after: str | None = None,
+    ) -> ReviewConnection:
+        page = await list_reviews(first=first, after=after)
+        return ReviewConnection.from_page(page, author_id=None)
+
+    @strawberry.field(
+        deprecation_reason="Use `reviewsConnection`."
+    )
     async def reviews(self) -> list[Review]:
         review_documents = await get_all_reviews()
         return [Review.from_document(document) for document in review_documents]
-        
+
 # ============================================================
 # MUTATION ROOT
 # ============================================================

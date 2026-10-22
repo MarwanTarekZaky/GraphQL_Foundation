@@ -1,11 +1,12 @@
 import asyncio 
 
-from app.database import user_collection
+from app.database import user_collection, review_collection
 
 
 async def main():
     
     await user_collection.delete_many({})
+    await review_collection.delete_many({})
     
     await user_collection.insert_many([
     {
@@ -26,7 +27,8 @@ async def main():
     },
     ])
 
-    
+    await review_collection.create_index([("authorId", 1), ("_id", -1)])
+
     print("Database seeded successfully.")
     print("Full name: Marwan Tarek Zaky")
     print("Nickname: Marwan")

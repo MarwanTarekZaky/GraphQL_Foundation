@@ -3,6 +3,7 @@
 GraphQL resolvers, REST routes, or scripts call these functions.
 They never talk to database directly.
 """
+from app.pagination import decode_cursor, encode_cursor
 
 from app.database import (
     create_review,
@@ -14,6 +15,8 @@ from app.database import (
     get_review,
     delete_review,
     get_user_email,
+    find_reviews,
+    count_reviews,
 )
 from app.events import publish_review_created
 from app.storage import (
@@ -28,6 +31,7 @@ from app.storage import (
 
 MIN_STARS = 1
 MAX_STARS = 5
+MAX_PAGE_SIZE = 50
 
 
 class AuthenticationError(Exception):
@@ -73,6 +77,46 @@ async def get_email(viewer: dict | None, user_id: int) -> str | None:
         return None
 
     return await get_user_email(user_id)
+
+async def list_reviews(
+    first: int,
+    after: str | None,
+    author_id: int | None = None,
+) -> dict:
+    # Never let a client ask for an unbounded amount of data.
+    if not 1 <= first <= MAX_PAGE_SIZE:
+        raise ValidationError(f"`first` must be between 1 and {MAX_PAGE_SIZE}.")
+
+    before_id = None
+
+    if after is not None:
+        before_id = decode_cursor(after)
+
+        if before_id is None:
+            raise ValidationError("Invalid cursor.")
+
+    # Fetch one extra item: if it exists, there is a next page.
+    documents = await find_reviews(
+        author_id=author_id,
+        before_id=before_id,
+        limit=first + 1,
+    )
+
+    has_next_page = len(documents) > first
+    documents = documents[:first]
+
+    return {
+        "edges": [
+            {"cursor": encode_cursor(document["_id"]), "node": document}
+            for document in documents
+        ],
+        "has_next_page": has_next_page,
+        "has_previous_page": after is not None,
+    }
+
+
+async def get_review_count(author_id: int | None = None) -> int:
+    return await count_reviews(author_id)
 
 
 async def write_review(

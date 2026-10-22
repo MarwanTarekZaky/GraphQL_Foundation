@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from pymongo import AsyncMongoClient
 from uuid import uuid4
+from bson import ObjectId
 
 load_dotenv()
 
@@ -72,6 +73,33 @@ async def get_all_reviews():
     async for review in review_collection.find():
         reviews.append(review)
     return reviews
+
+async def find_reviews(
+    author_id: int | None,
+    before_id: ObjectId | None,
+    limit: int,
+):
+    query = {}
+
+    if author_id is not None:
+        query["authorId"] = author_id
+
+    if before_id is not None:
+        query["_id"] = {"$lt": before_id}
+
+    reviews = []
+    async for review in review_collection.find(query).sort("_id", -1).limit(limit):
+        reviews.append(review)
+    return reviews
+
+
+async def count_reviews(author_id: int | None):
+    query = {}
+
+    if author_id is not None:
+        query["authorId"] = author_id
+
+    return await review_collection.count_documents(query)
 
 async def get_reviews_by_author(author_id: int):
     reviews = []
