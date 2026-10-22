@@ -4,6 +4,7 @@ GraphQL resolvers, REST routes, or scripts call these functions.
 They never talk to database directly.
 """
 from app.pagination import decode_cursor, encode_cursor
+from app.errors import AuthenticationError, ErrorCode, ValidationError
 
 from app.database import (
     create_review,
@@ -34,12 +35,6 @@ MAX_STARS = 5
 MAX_PAGE_SIZE = 50
 
 
-class AuthenticationError(Exception):
-    pass
-
-
-class ValidationError(Exception):
-    pass
 
 
 def require_user(user: dict | None) -> dict:
@@ -85,15 +80,23 @@ async def list_reviews(
 ) -> dict:
     # Never let a client ask for an unbounded amount of data.
     if not 1 <= first <= MAX_PAGE_SIZE:
-        raise ValidationError(f"`first` must be between 1 and {MAX_PAGE_SIZE}.")
+        raise ValidationError(
+            f"`first` must be between 1 and {MAX_PAGE_SIZE}.",
+            code=ErrorCode.INVALID_PAGE_SIZE,
+            field=["first"],
+        )
 
     before_id = None
-
+    
     if after is not None:
         before_id = decode_cursor(after)
 
         if before_id is None:
-            raise ValidationError("Invalid cursor.")
+            raise ValidationError(
+                "Invalid cursor.",
+                code=ErrorCode.INVALID_CURSOR,
+                field=["after"],
+            )
 
     # Fetch one extra item: if it exists, there is a next page.
     documents = await find_reviews(
@@ -129,7 +132,9 @@ async def write_review(
     
     if not MIN_STARS <= stars <= MAX_STARS:
         raise ValidationError(
-            f"Stars must be between {MIN_STARS} and {MAX_STARS}."
+            f"Stars must be between {MIN_STARS} and {MAX_STARS}.",
+            code=ErrorCode.STARS_OUT_OF_RANGE,
+            field=["stars"],
         )
     
     saved_review = await create_review(
@@ -166,7 +171,11 @@ async def change_nickname(user: dict | None, nickname: str) -> dict:
 
     nickname = nickname.strip()
     if not nickname:
-        raise ValidationError("Nickname cannot be empty.")
+        raise ValidationError(
+            "Nickname cannot be empty.",
+            code=ErrorCode.NICKNAME_EMPTY,
+            field=["nickname"],
+        )
 
     return await update_user_nickname(
         user_id=author["id"],
@@ -197,12 +206,20 @@ async def set_avatar(user: dict | None, upload_id: str) -> dict:
 
     # Ownership rule: you can only claim an upload URL you requested yourself.
     if upload is None or upload["ownerId"] != owner["id"]:
-        raise ValidationError("Upload not found.")
+        raise ValidationError(
+            "Upload not found.",
+            code=ErrorCode.UPLOAD_NOT_FOUND,
+            field=["uploadId"],
+        )
 
     path = temp_path(upload_id)
 
     if not path.exists():
-        raise ValidationError("The file has not been uploaded yet.")
+        raise ValidationError(
+            "The file has not been uploaded yet.",
+            code=ErrorCode.UPLOAD_NOT_RECEIVED,
+            field=["uploadId"],
+        )
 
     # Never trust the client's file name or Content-Type: check the real bytes.
     extension = sniff_image_type(path)
@@ -210,7 +227,11 @@ async def set_avatar(user: dict | None, upload_id: str) -> dict:
     if extension is None:
         path.unlink(missing_ok=True)
         await delete_upload(upload_id)
-        raise ValidationError("Avatar must be a PNG or JPEG image.")
+        raise ValidationError(
+            "Avatar must be a PNG or JPEG image.",
+            code=ErrorCode.INVALID_IMAGE_TYPE,
+            field=["uploadId"],
+        )
 
     avatar_url = move_to_avatars(path, extension)
     await delete_upload(upload_id)

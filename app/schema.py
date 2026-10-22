@@ -5,6 +5,9 @@ from collections.abc import AsyncGenerator
 
 import strawberry
 
+from app.graphql_errors import ErrorCodes
+from app.errors import ErrorCode, ValidationError
+
 from app.database import (
     get_user_full_name,
     get_user_nickname,
@@ -314,12 +317,50 @@ class HeroWithFriends:
     id: strawberry.ID
     name: str
     friends: list[Friend]
-    
+
+# ============================================================
+# ERRORS AS DATA
+# ============================================================
+
+strawberry.enum(ErrorCode, name="UserErrorCode")
+
+
+@strawberry.type
+class UserError:
+    message: str
+    code: ErrorCode
+    # Path to the input field that caused the error, e.g. ["stars"].
+    field: list[str] | None = None
+
+    @classmethod
+    def from_exception(cls, error: ValidationError) -> "UserError":
+        return cls(
+            message=error.message,
+            code=error.code,
+            field=error.field,
+        )
+
+
+@strawberry.input
+class AddReviewInput:
+    episode: Episode
+    stars: int
+    commentary: str | None = None
+
+
+@strawberry.type
+class AddReviewPayload:
+    review: Review | None = None
+    user_errors: list[UserError] = strawberry.field(default_factory=list)
+  
 @strawberry.type
 class DeleteReviewPayload:
     success: bool
     delete_review_id: strawberry.ID | None
-    message: str
+    message: str = strawberry.field(
+        deprecation_reason="Use `userErrors`."
+    )
+    user_errors: list["UserError"] = strawberry.field(default_factory=list)
     
 @strawberry.type
 class AvatarUpload:
@@ -437,6 +478,10 @@ class Query:
             ],  
         )
         
+    @strawberry.field
+    def boom(self) -> str | None:
+        raise RuntimeError("mongodb://admin:SECRET@db failed")
+
    
     
 # ============================================================
@@ -495,8 +540,27 @@ class Mutation:
         return User(id=updated_user["id"])
     
 
-
     @strawberry.mutation
+    async def add_review(
+        self,
+        info: strawberry.Info,
+        input: AddReviewInput,
+    ) -> AddReviewPayload:
+        try:
+            saved_review = await write_review(
+                user=info.context["user"],
+                episode=input.episode.value,
+                stars=input.stars,
+                commentary=input.commentary,
+            )
+        except ValidationError as error:
+            return AddReviewPayload(user_errors=[UserError.from_exception(error)])
+
+        return AddReviewPayload(review=Review.from_document(saved_review))
+
+    @strawberry.mutation(
+        deprecation_reason="Use `addReview`, which returns errors as data."
+    )
     async def create_review(
         self,
         info: strawberry.Info,
@@ -535,6 +599,20 @@ class Mutation:
             user=info.context["user"],
             review_id=str(review_id),
         )
+        
+        if deleted_review is None:
+            return DeleteReviewPayload(
+                success=False,
+                delete_review_id=None,
+                message="Review not found or not authorized to delete.",
+                user_errors=[
+                    UserError(
+                        message="Review not found.",
+                        code=ErrorCode.REVIEW_NOT_FOUND,
+                        field=["reviewId"],
+                    )
+                ],
+            )
 
         if deleted_review is None:
             return DeleteReviewPayload(
@@ -592,5 +670,6 @@ class Subscription:
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
-    subscription=Subscription
+    subscription=Subscription,
+    extensions=[ErrorCodes],
 )
