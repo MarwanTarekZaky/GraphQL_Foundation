@@ -1,3 +1,14 @@
+input AddReviewInput {
+  episode: Episode!
+  stars: Int!
+  commentary: String = null
+}
+
+type AddReviewPayload {
+  review: Review
+  userErrors: [UserError!]!
+}
+
 type AvatarUpload {
   uploadId: ID!
   uploadUrl: String!
@@ -12,7 +23,8 @@ interface Character {
 type DeleteReviewPayload {
   success: Boolean!
   deleteReviewId: ID
-  message: String!
+  message: String! @deprecated(reason: "Use `userErrors`.")
+  userErrors: [UserError!]!
 }
 
 type Droid implements Character {
@@ -53,10 +65,15 @@ enum LengthUnit {
 type Mutation {
   requestAvatarUpload: AvatarUpload!
   setMyAvatar(uploadId: ID!): User!
-  createReview(episode: Episode!, review: ReviewInput!): Review!
+  addReview(input: AddReviewInput!): AddReviewPayload!
+  createReview(episode: Episode!, review: ReviewInput!): Review! @deprecated(reason: "Use `addReview`, which returns errors as data.")
   updateMyNickname(nickname: String!): User!
   deleteReview(reviewId: ID!): DeleteReviewPayload!
   deleteMyReview(reviewId: ID!): DeleteReviewPayload! @deprecated(reason: "Use `deleteReview`. Admins can delete any review, not only their own.")
+}
+
+interface Node {
+  id: ID!
 }
 
 type PageInfo {
@@ -67,6 +84,8 @@ type PageInfo {
 }
 
 type Query {
+  node(id: ID!): Node
+  nodes(ids: [ID!]!): [Node]!
   me: User
   hero: Character!
   humanHero: Character!
@@ -78,7 +97,7 @@ type Query {
   reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`.")
 }
 
-type Review {
+type Review implements Node {
   id: ID!
   episode: Episode!
   stars: Int!
@@ -117,8 +136,9 @@ type Subscription {
   reviewCreated: Review!
 }
 
-type User {
-  id: Int!
+type User implements Node {
+  id: ID!
+  databaseId: Int!
   fullName: String
   nickname: String
   avatarUrl: String
@@ -126,4 +146,21 @@ type User {
   reviewsConnection(first: Int! = 10, after: String = null): ReviewConnection
   reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`.")
   name: String @deprecated(reason: "Use `fullName`.")
+}
+
+type UserError {
+  message: String!
+  code: UserErrorCode!
+  field: [String!]
+}
+
+enum UserErrorCode {
+  STARS_OUT_OF_RANGE
+  NICKNAME_EMPTY
+  REVIEW_NOT_FOUND
+  UPLOAD_NOT_FOUND
+  UPLOAD_NOT_RECEIVED
+  INVALID_IMAGE_TYPE
+  INVALID_PAGE_SIZE
+  INVALID_CURSOR
 }

@@ -27,6 +27,11 @@ async def get_user_by_token(token: str):
     return await user_collection.find_one({
         "token": token
     })
+    
+async def get_user(user_id: int):
+    return await user_collection.find_one({
+        "id": user_id
+    })
 
 async def get_user_full_name(user_id: int):
     user = await user_collection.find_one({

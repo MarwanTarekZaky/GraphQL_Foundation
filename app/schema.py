@@ -7,6 +7,7 @@ import strawberry
 
 from app.graphql_errors import ErrorCodes
 from app.errors import ErrorCode, ValidationError
+from app.global_id import from_global_id, to_global_id
 
 from app.database import (
     get_user_full_name,
@@ -14,6 +15,8 @@ from app.database import (
     get_all_reviews,
     get_reviews_by_author,
     get_user_avatar_url,
+    get_review,
+    get_user,
 )
 
 from app.events import subscribe_to_review_created
@@ -32,59 +35,77 @@ from app.services import (
 
 
 # ============================================================
+# NODE INTERFACE (global object identification)
+# ============================================================
+
+@strawberry.interface
+class Node:
+    """An object with a globally unique ID."""
+    id: strawberry.ID
+
+
+# ============================================================
 # USER
 # ============================================================
 
 @strawberry.type
-class User:
-    id: int
+class User(Node):
+    # The plain MongoDB id, kept for clients that relied on the old Int id.
+    database_id: int
+
+    @classmethod
+    def from_id(cls, user_id: int) -> "User":
+        return cls(
+            id=strawberry.ID(to_global_id("User", user_id)),
+            database_id=user_id,
+        )
 
     @strawberry.field
     async def full_name(self) -> str | None:
-        return await get_user_full_name(self.id)
+        return await get_user_full_name(self.database_id)
 
     @strawberry.field
     async def nickname(self) -> str | None:
-        return await get_user_nickname(self.id)
-    
+        return await get_user_nickname(self.database_id)
+
     @strawberry.field
     async def avatar_url(self, info: strawberry.Info) -> str | None:
-        path = await get_user_avatar_url(self.id)
-    
+        path = await get_user_avatar_url(self.database_id)
+
         if path is None:
             return None
-    
+
         base_url = str(info.context["request"].base_url).rstrip("/")
         return base_url + path
-    
+
     @strawberry.field
     async def email(self, info: strawberry.Info) -> str | None:
         return await get_email(
             viewer=info.context["user"],
-            user_id=self.id,
+            user_id=self.database_id,
         )
-        
+
     @strawberry.field
     async def reviews_connection(
-            self,
-            first: int = 10,
-            after: str | None = None,
-        ) -> "ReviewConnection | None":
-            page = await list_reviews(first=first, after=after, author_id=self.id)
-            return ReviewConnection.from_page(page, author_id=self.id)
-    
+        self,
+        first: int = 10,
+        after: str | None = None,
+    ) -> "ReviewConnection | None":
+        page = await list_reviews(first=first, after=after, author_id=self.database_id)
+        return ReviewConnection.from_page(page, author_id=self.database_id)
+
     @strawberry.field(
-    deprecation_reason="Use `reviewsConnection`."
+        deprecation_reason="Use `reviewsConnection`."
     )
     async def reviews(self) -> list["Review"]:
-        documents = await get_reviews_by_author(self.id)
+        documents = await get_reviews_by_author(self.database_id)
         return [Review.from_document(doc) for doc in documents]
 
     @strawberry.field(
         deprecation_reason="Use `fullName`."
     )
     async def name(self) -> str | None:
-        return await get_user_full_name(self.id)
+        return await get_user_full_name(self.database_id)
     
     
     
@@ -224,8 +245,7 @@ class ReviewInput:
 
 
 @strawberry.type
-class Review:
-    id: strawberry.ID
+class Review(Node):
     episode: Episode
     stars: int
     commentary: str | None
@@ -235,13 +255,13 @@ class Review:
     
     @strawberry.field
     def author(self) -> User:
-        return User(id=self.author_id)
-    
-    
+        return User.from_id(self.author_id)
+
+
     @classmethod
     def from_document(cls, document: dict) -> "Review":
         return cls(
-            id=document["id"],
+            id=strawberry.ID(to_global_id("Review", document["id"])),
             episode=Episode(document["episode"]),
             stars=document["stars"],
             commentary=document.get("commentary"),
@@ -368,13 +388,55 @@ class AvatarUpload:
     upload_url: str
     expires_at: int
 
-  
+
+# ============================================================
+# NODE LOOKUP
+# ============================================================
+
+def review_local_id(review_id: strawberry.ID) -> str:
+    parsed = from_global_id(review_id)
+
+    if parsed is not None and parsed[0] == "Review":
+        return parsed[1]
+
+    # Old clients may still send the raw id they stored before global IDs.
+    return str(review_id)
+
+
+async def resolve_node(global_id: strawberry.ID) -> Node | None:
+    parsed = from_global_id(global_id)
+
+    if parsed is None:
+        return None
+
+    type_name, local_id = parsed
+
+    if type_name == "User" and local_id.isdigit():
+        user = await get_user(int(local_id))
+        return User.from_id(user["id"]) if user else None
+
+    if type_name == "Review":
+        review = await get_review(local_id)
+        return Review.from_document(review) if review else None
+
+    return None
+
+
 # ============================================================
 # QUERY ROOT
 # ============================================================
 
 @strawberry.type
 class Query:
+
+    @strawberry.field
+    async def node(self, id: strawberry.ID) -> Node | None:
+        return await resolve_node(id)
+
+    @strawberry.field
+    async def nodes(self, ids: list[strawberry.ID]) -> list[Node | None]:
+        # Same length and order as `ids`; unknown ids become null.
+        return list(await asyncio.gather(*(resolve_node(id) for id in ids)))
 
     # --------------------------------------------------------
     # Authenticated MongoDB user example
@@ -390,9 +452,7 @@ class Query:
         if authenticated_user is None:
             return None
 
-        return User(
-            id=authenticated_user["id"],
-        )
+        return User.from_id(authenticated_user["id"])
 
     # --------------------------------------------------------
     # Interface examples
@@ -477,13 +537,7 @@ class Query:
                 ),
             ],  
         )
-        
-    @strawberry.field
-    def boom(self) -> str | None:
-        raise RuntimeError("mongodb://admin:SECRET@db failed")
 
-   
-    
 # ============================================================
 # REVIEW QUERIES
 # ============================================================
@@ -537,7 +591,7 @@ class Mutation:
             upload_id=str(upload_id),
         )
 
-        return User(id=updated_user["id"])
+        return User.from_id(updated_user["id"])
     
 
     @strawberry.mutation
@@ -587,7 +641,7 @@ class Mutation:
             nickname=nickname,
         )
 
-        return User(id=updated_user["id"])
+        return User.from_id(updated_user["id"])
 
     @strawberry.mutation
     async def delete_review(
@@ -597,9 +651,9 @@ class Mutation:
     ) -> DeleteReviewPayload:
         deleted_review = await remove_review(
             user=info.context["user"],
-            review_id=str(review_id),
+            review_id=review_local_id(review_id),
         )
-        
+
         if deleted_review is None:
             return DeleteReviewPayload(
                 success=False,
@@ -612,13 +666,6 @@ class Mutation:
                         field=["reviewId"],
                     )
                 ],
-            )
-
-        if deleted_review is None:
-            return DeleteReviewPayload(
-                success=False,
-                delete_review_id=None,
-                message="Review not found or not authorized to delete.",
             )
 
         return DeleteReviewPayload(
