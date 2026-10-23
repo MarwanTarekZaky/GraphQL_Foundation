@@ -41,4 +41,6 @@ class GraphQLOverHTTPRouter(GraphQLRouter):
             response.pop("data", None)
             request.state.sub_response.status_code = 400
 
+        set_cache_headers(request, result)
+
         return response
