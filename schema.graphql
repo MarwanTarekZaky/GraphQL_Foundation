@@ -94,7 +94,7 @@ type Query {
   search(text: String!): [SearchResult!]!
   heroWithFriends: HeroWithFriends!
   reviewsConnection(first: Int! = 10, after: String = null): ReviewConnection
-  reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`.")
+  reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`. This legacy field returns at most 50 reviews.")
 }
 
 type Review implements Node {
@@ -144,7 +144,7 @@ type User implements Node {
   avatarUrl: String
   email: String
   reviewsConnection(first: Int! = 10, after: String = null): ReviewConnection
-  reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`.")
+  reviews: [Review!]! @deprecated(reason: "Use `reviewsConnection`. This legacy field returns at most 50 reviews.")
   name: String @deprecated(reason: "Use `fullName`.")
 }
 
@@ -163,4 +163,5 @@ enum UserErrorCode {
   INVALID_IMAGE_TYPE
   INVALID_PAGE_SIZE
   INVALID_CURSOR
+  COMMENTARY_TOO_LONG
 }

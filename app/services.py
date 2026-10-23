@@ -33,8 +33,7 @@ from app.storage import (
 MIN_STARS = 1
 MAX_STARS = 5
 MAX_PAGE_SIZE = 50
-
-
+MAX_COMMENTARY_LENGTH = 2000
 
 
 def require_user(user: dict | None) -> dict:
@@ -129,14 +128,27 @@ async def write_review(
     commentary: str | None,
 ) -> dict:
     author = require_user(user)
-    
+
     if not MIN_STARS <= stars <= MAX_STARS:
         raise ValidationError(
             f"Stars must be between {MIN_STARS} and {MAX_STARS}.",
             code=ErrorCode.STARS_OUT_OF_RANGE,
             field=["stars"],
         )
-    
+
+    if commentary is not None:
+        commentary = commentary.strip()
+
+        if len(commentary) > MAX_COMMENTARY_LENGTH:
+            raise ValidationError(
+                (
+                    "Commentary must not exceed "
+                    f"{MAX_COMMENTARY_LENGTH} characters."
+                ),
+                code=ErrorCode.COMMENTARY_TOO_LONG,
+                field=["commentary"],
+            )
+
     saved_review = await create_review(
         episode=episode,
         stars=stars,
@@ -147,7 +159,6 @@ async def write_review(
     await publish_review_created(saved_review)
 
     return saved_review
-
 
 async def remove_review(
     user: dict | None,

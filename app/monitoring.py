@@ -1,14 +1,19 @@
-"""Lightweight performance monitoring: time each operation and count
-the MongoDB commands it sends. A small stand-in for OpenTelemetry."""
+"""Lightweight performance monitoring.
+
+Times each GraphQL operation and counts the MongoDB commands it sends.
+This is a small local stand-in for a production observability system.
+"""
 
 import time
+
 from contextvars import ContextVar
 
 from pymongo import monitoring
 from strawberry.extensions import SchemaExtension
 
 
-# The counter for the operation currently running (None outside GraphQL).
+# The counter for the operation currently running.
+# It is None outside a GraphQL operation.
 current_db_queries: ContextVar[list[int] | None] = ContextVar(
     "current_db_queries",
     default=None,
@@ -16,7 +21,7 @@ current_db_queries: ContextVar[list[int] | None] = ContextVar(
 
 
 class DatabaseQueryCounter(monitoring.CommandListener):
-    """PyMongo calls `started` for every command sent to MongoDB."""
+    """PyMongo calls started() for each command sent to MongoDB."""
 
     def started(self, event):
         counter = current_db_queries.get()
@@ -32,16 +37,32 @@ class DatabaseQueryCounter(monitoring.CommandListener):
 
 
 class OperationStats(SchemaExtension):
+    """Collect execution duration and MongoDB query count safely."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # These defaults are important.
+        # Parsing may fail before on_operation() begins.
+        self.db_queries = [0]
+        self.duration_ms = 0.0
 
     def on_operation(self):
+        # Reset data for this execution.
         self.db_queries = [0]
+        self.duration_ms = 0.0
+
         token = current_db_queries.set(self.db_queries)
         started_at = time.perf_counter()
 
-        yield
+        try:
+            yield
+        finally:
+            self.duration_ms = (
+                time.perf_counter() - started_at
+            ) * 1000
 
-        self.duration_ms = (time.perf_counter() - started_at) * 1000
-        current_db_queries.reset(token)
+            current_db_queries.reset(token)
 
     def get_results(self):
         return {

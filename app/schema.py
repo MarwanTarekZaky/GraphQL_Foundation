@@ -4,15 +4,20 @@ import asyncio
 from collections.abc import AsyncGenerator
 
 import strawberry
+from strawberry.extensions import (
+    DisableIntrospection,
+    MaxAliasesLimiter,
+    MaxTokensLimiter,
+    QueryDepthLimiter,
+)
 
+from app.config import IS_PRODUCTION
 from app.graphql_errors import ErrorCodes
 from app.errors import ErrorCode, ValidationError
 from app.global_id import from_global_id, to_global_id
 from app.monitoring import OperationStats
 
 from app.database import (
-    get_all_reviews,
-    get_reviews_by_author,
     get_review,
     get_user,
 )
@@ -31,7 +36,7 @@ from app.services import (
     
 )
 
-extensions=[ErrorCodes, OperationStats],
+
 
 
 
@@ -103,12 +108,23 @@ class User(Node):
         return ReviewConnection.from_page(page, author_id=self.database_id)
 
     @strawberry.field(
-        deprecation_reason="Use `reviewsConnection`."
+    deprecation_reason=(
+        "Use `reviewsConnection`. "
+        "This legacy field returns at most 50 reviews."
+    )
     )
     async def reviews(self) -> list["Review"]:
-        documents = await get_reviews_by_author(self.database_id)
-        return [Review.from_document(doc) for doc in documents]
+        page = await list_reviews(
+        first=50,
+        after=None,
+        author_id=self.database_id,
+    )
 
+        return [
+            Review.from_document(edge["node"])
+            for edge in page["edges"]
+        ]
+    
     @strawberry.field(
     deprecation_reason="Use `fullName`."
     )
@@ -438,6 +454,7 @@ async def resolve_node(global_id: strawberry.ID) -> Node | None:
 @strawberry.type
 class Query:
 
+
     @strawberry.field
     async def node(self, id: strawberry.ID) -> Node | None:
         return await resolve_node(id)
@@ -561,12 +578,23 @@ class Query:
         return ReviewConnection.from_page(page, author_id=None)
 
     @strawberry.field(
-        deprecation_reason="Use `reviewsConnection`."
+    deprecation_reason=(
+        "Use `reviewsConnection`. "
+        "This legacy field returns at most 50 reviews."
+    )
     )
     async def reviews(self) -> list[Review]:
-        review_documents = await get_all_reviews()
-        return [Review.from_document(document) for document in review_documents]
+        page = await list_reviews(
+        first=50,
+        after=None,
+    )
 
+        return [
+        Review.from_document(edge["node"])
+        for edge in page["edges"]
+        ]
+        
+        
 # ============================================================
 # MUTATION ROOT
 # ============================================================
@@ -722,10 +750,30 @@ class Subscription:
 # ============================================================
 # GRAPHQL SCHEMA
 # ============================================================
+def report_query_depth(depths: dict[str, int]) -> None:
+    print(f"[SECURITY] Operation depths: {depths}")
+    
+schema_extensions = [
+    ErrorCodes,
+    OperationStats,
+    MaxTokensLimiter(max_token_count=1000),
+    MaxAliasesLimiter(max_alias_count=15),
+    QueryDepthLimiter(
+        max_depth=8,
+        callback=report_query_depth,
+    ),
+]
+
+
+if IS_PRODUCTION:
+    schema_extensions.append(
+        DisableIntrospection()
+    )
+
 
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
     subscription=Subscription,
-    extensions=[ErrorCodes],
+    extensions=schema_extensions,
 )

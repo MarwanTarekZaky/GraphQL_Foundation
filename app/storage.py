@@ -6,13 +6,14 @@ and moves files to permanent storage only when the app claims them.
 
 import hashlib
 import hmac
-import os
 import time
 from pathlib import Path
 from uuid import uuid4
 
+from app.config import UPLOAD_SECRET as UPLOAD_SECRET_TEXT
 
-UPLOAD_SECRET = os.getenv("UPLOAD_SECRET", "dev-only-change-me").encode()
+UPLOAD_SECRET = UPLOAD_SECRET_TEXT.encode("utf-8")
+
 UPLOAD_URL_TTL_SECONDS = 5 * 60
 TEMP_FILE_TTL_SECONDS = 60 * 60
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024

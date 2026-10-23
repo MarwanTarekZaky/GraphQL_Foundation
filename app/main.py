@@ -1,12 +1,33 @@
 from fastapi import FastAPI, Depends
 from starlette.requests import HTTPConnection
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.middleware.httpsredirect import (
+    HTTPSRedirectMiddleware,
+)
+from fastapi.middleware.trustedhost import (
+    TrustedHostMiddleware,
+)
 
+
+from app.config import (
+    ALLOWED_HOSTS,
+    ALLOW_GRAPHQL_GET,
+    FORCE_HTTPS,
+    IS_PRODUCTION,
+    GRAPHQL_REQUEST_TIMEOUT_SECONDS,
+)
+from app.timeout_middleware import (
+    GraphQLTimeoutMiddleware,
+)
+from app.rate_limit_middleware import (
+    GraphQLRateLimitMiddleware,
+)
 from app.graphql_http import GraphQLOverHTTPRouter
 from app.schema import schema
 from app.auth import get_current_user
 from app.services import get_email
 from app.loaders import create_loaders
+from app.config import IS_PRODUCTION, FORCE_HTTPS, ALLOWED_HOSTS
 
 from fastapi.staticfiles import StaticFiles
 
@@ -15,6 +36,28 @@ from app.uploads import router as uploads_router
 
 
 app = FastAPI()
+
+app.add_middleware(
+    GraphQLRateLimitMiddleware,
+    limit=60,
+    window_seconds=60,
+)
+
+app.add_middleware(
+    GraphQLTimeoutMiddleware,
+    timeout_seconds=GRAPHQL_REQUEST_TIMEOUT_SECONDS,
+)
+
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=ALLOWED_HOSTS,
+)
+
+if FORCE_HTTPS:
+    app.add_middleware(
+        HTTPSRedirectMiddleware,
+    )
 
 # Compress JSON responses for clients that send `Accept-Encoding: gzip`.
 app.add_middleware(GZipMiddleware, minimum_size=1000)
@@ -33,7 +76,8 @@ graphql_app = GraphQLOverHTTPRouter(
     schema,
     context_getter=get_context,
     # GET is allowed for queries only (cache-friendly); mutations require POST.
-    allow_queries_via_get=True,
+    graphql_ide=None if IS_PRODUCTION else "graphiql",
+    allow_queries_via_get=ALLOW_GRAPHQL_GET,
 )
 
 
@@ -68,3 +112,11 @@ async def root():
         "message": "GraphQL server is running",
         "graphql": "/graphql",
     }
+
+@app.on_event("startup")
+async def report_environment():
+    mode = "production" if IS_PRODUCTION else "development"
+
+    print(
+        f"[STARTUP] Application mode: {mode}"
+    )

@@ -1,9 +1,19 @@
-"""Top-level GraphQL errors: give every error a machine-readable code,
-and never leak the details of unexpected failures to clients."""
+"""Safe top-level GraphQL error formatting.
+
+Development:
+- Keep detailed parsing and validation messages.
+- Mask unexpected execution failures.
+
+Production:
+- Hide detailed parsing and validation suggestions.
+- Mask unexpected execution failures.
+- Preserve safe domain-error messages and machine-readable codes.
+"""
 
 from graphql import GraphQLError
 from strawberry.extensions import SchemaExtension
 
+from app.config import IS_PRODUCTION
 from app.errors import AuthenticationError, ValidationError
 
 
@@ -12,6 +22,8 @@ def with_code(
     code: str,
     message: str | None = None,
 ) -> GraphQLError:
+    """Return a new GraphQL error with a machine-readable code."""
+
     return GraphQLError(
         message=message or error.message,
         nodes=error.nodes,
@@ -19,34 +31,77 @@ def with_code(
         positions=error.positions,
         path=error.path,
         original_error=error.original_error,
-        extensions={**(error.extensions or {}), "code": code},
+        extensions={
+            **(error.extensions or {}),
+            "code": code,
+        },
     )
 
 
 def classify(error: GraphQLError) -> GraphQLError:
+    """Convert an internal GraphQL error into a client-safe error."""
+
     original = error.original_error
 
-    # No original exception: the document itself was invalid (syntax/validation).
+    # No original Python exception normally means that parsing,
+    # validation, variable coercion, or another request-level check failed.
     if original is None:
-        return with_code(error, "GRAPHQL_VALIDATION_FAILED")
+        message = (
+            "Invalid GraphQL request."
+            if IS_PRODUCTION
+            else error.message
+        )
 
+        return with_code(
+            error,
+            "GRAPHQL_VALIDATION_FAILED",
+            message=message,
+        )
+
+    # Safe authentication failure.
     if isinstance(original, AuthenticationError):
-        return with_code(error, "UNAUTHENTICATED")
+        message = (
+            "Authentication required."
+            if IS_PRODUCTION
+            else error.message
+        )
 
+        return with_code(
+            error,
+            "UNAUTHENTICATED",
+            message=message,
+        )
+
+    # Expected business-rule failure.
+    # These messages are deliberately authored for clients.
     if isinstance(original, ValidationError):
-        return with_code(error, original.code.value)
+        return with_code(
+            error,
+            original.code.value,
+            message=original.message,
+        )
 
-    # Anything else is a bug or an outage: hide internals from the client.
-    # The full traceback is still logged on the server.
-    return with_code(error, "INTERNAL_SERVER_ERROR", message="Internal server error.")
+    # Anything else is an unexpected programming error,
+    # infrastructure failure, or outage.
+    # Never expose its internal details to GraphQL clients.
+    return with_code(
+        error,
+        "INTERNAL_SERVER_ERROR",
+        message="Internal server error.",
+    )
 
 
 class ErrorCodes(SchemaExtension):
+    """Classify and sanitize GraphQL errors before serialization."""
 
     def on_operation(self):
-        yield
+        try:
+            yield
+        finally:
+            result = self.execution_context.result
 
-        result = self.execution_context.result
-
-        if result is not None and result.errors:
-            result.errors = [classify(error) for error in result.errors]
+            if result is not None and result.errors:
+                result.errors = [
+                    classify(error)
+                    for error in result.errors
+                ]
