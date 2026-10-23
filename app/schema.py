@@ -8,13 +8,11 @@ import strawberry
 from app.graphql_errors import ErrorCodes
 from app.errors import ErrorCode, ValidationError
 from app.global_id import from_global_id, to_global_id
+from app.monitoring import OperationStats
 
 from app.database import (
-    get_user_full_name,
-    get_user_nickname,
     get_all_reviews,
     get_reviews_by_author,
-    get_user_avatar_url,
     get_review,
     get_user,
 )
@@ -32,6 +30,9 @@ from app.services import (
     list_reviews,
     
 )
+
+extensions=[ErrorCodes, OperationStats],
+
 
 
 # ============================================================
@@ -60,17 +61,24 @@ class User(Node):
             database_id=user_id,
         )
 
-    @strawberry.field
-    async def full_name(self) -> str | None:
-        return await get_user_full_name(self.database_id)
+    async def document(self, info: strawberry.Info) -> dict | None:
+        # Batched: every User in this request is loaded in ONE query.
+        return await info.context["user_loader"].load(self.database_id)
 
     @strawberry.field
-    async def nickname(self) -> str | None:
-        return await get_user_nickname(self.database_id)
+    async def full_name(self, info: strawberry.Info) -> str | None:
+        user = await self.document(info)
+        return user["fullName"] if user else None
+
+    @strawberry.field
+    async def nickname(self, info: strawberry.Info) -> str | None:
+        user = await self.document(info)
+        return user["nickname"] if user else None
 
     @strawberry.field
     async def avatar_url(self, info: strawberry.Info) -> str | None:
-        path = await get_user_avatar_url(self.database_id)
+        user = await self.document(info)
+        path = user.get("avatarUrl") if user else None
 
         if path is None:
             return None
@@ -102,10 +110,11 @@ class User(Node):
         return [Review.from_document(doc) for doc in documents]
 
     @strawberry.field(
-        deprecation_reason="Use `fullName`."
+    deprecation_reason="Use `fullName`."
     )
-    async def name(self) -> str | None:
-        return await get_user_full_name(self.database_id)
+    async def name(self, info: strawberry.Info) -> str | None:
+        return await self.full_name(info)
+
     
     
     

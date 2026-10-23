@@ -5,7 +5,9 @@ from pymongo import AsyncMongoClient
 from uuid import uuid4
 from bson import ObjectId
 
+from app.monitoring import DatabaseQueryCounter
 load_dotenv()
+
 
 MONGODB_URL = os.getenv(
     "MONGODB_URL",
@@ -17,7 +19,11 @@ MONGODB_DATABASE = os.getenv(
     "graphql_learning"
 )
 
-client = AsyncMongoClient(MONGODB_URL)
+client = AsyncMongoClient(
+    MONGODB_URL,
+    event_listeners=[DatabaseQueryCounter()],
+)
+
 
 db = client[MONGODB_DATABASE]
 
@@ -32,6 +38,12 @@ async def get_user(user_id: int):
     return await user_collection.find_one({
         "id": user_id
     })
+
+async def get_users_by_ids(user_ids: list[int]):
+    users = []
+    async for user in user_collection.find({"id": {"$in": user_ids}}):
+        users.append(user)
+    return users
 
 async def get_user_full_name(user_id: int):
     user = await user_collection.find_one({

@@ -1,10 +1,12 @@
 from fastapi import FastAPI, Depends
 from starlette.requests import HTTPConnection
+from fastapi.middleware.gzip import GZipMiddleware
 
 from app.graphql_http import GraphQLOverHTTPRouter
 from app.schema import schema
 from app.auth import get_current_user
 from app.services import get_email
+from app.loaders import create_loaders
 
 from fastapi.staticfiles import StaticFiles
 
@@ -14,13 +16,16 @@ from app.uploads import router as uploads_router
 
 app = FastAPI()
 
+# Compress JSON responses for clients that send `Accept-Encoding: gzip`.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
 
 async def get_context(connection: HTTPConnection):
-    authorization = connection.headers.get("Authorization")
-
     return {
         "request": connection,
         "user": await get_current_user(connection),
+        **create_loaders(),
     }
 
 
