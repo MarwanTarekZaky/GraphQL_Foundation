@@ -4,6 +4,26 @@ from starlette.requests import Request
 from strawberry.fastapi import GraphQLRouter
 
 
+def set_cache_headers(request: Request, result) -> None:
+    headers = request.state.sub_response.headers
+
+    # Only anonymous, successful GET queries may be stored by browsers and CDNs.
+    # Every anonymous viewer gets the same answer, so sharing it is safe.
+    is_shareable = (
+        request.method == "GET"
+        and "authorization" not in request.headers
+        and not result.errors
+    )
+
+    if is_shareable:
+        headers["Cache-Control"] = "public, max-age=60"
+    else:
+        headers["Cache-Control"] = "no-store"
+
+    # The same URL can return different data for different tokens.
+    headers["Vary"] = "Authorization"
+
+
 class GraphQLOverHTTPRouter(GraphQLRouter):
 
     async def get_sub_response(self, request: Request):
